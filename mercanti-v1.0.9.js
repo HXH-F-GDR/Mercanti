@@ -9,7 +9,9 @@
    - categorie 'elenco': <div class="mc-sell" data-mc-sell="Nome categoria"></div>
      (menu degli oggetti + lista di quelli aggiunti);
    - categorie 'quantita': <div class="mc-qty" data-mc-vendi="Nome voce"></div> sulla riga.
-   Il genitore di ogni .mc-qty riceve la classe mc-on quando la voce e' nel carrello.
+   Facoltativo, per i mercanti che ritirano lotti (RICICLO nel config):
+   - in ogni scheda di rarita': <div class="mc-rec" data-mc-rec="Espansione|rarita'"></div>.
+   Il genitore di ogni .mc-qty / .mc-rec riceve la classe mc-on quando la voce e' nel carrello.
    Formati miniatura nel post: quadro, icona (contain), banner (4:1, sopra il testo), carta (1:2).
    ===================================================================== */
 ;(function () {
@@ -30,6 +32,7 @@ var DEF = {
  MAX_PAGES: 20,
  TESTO_CONFERMA: '',
  RARITA: { comune: 'Comune', epico: 'Epico', leggendario: 'Leggendario', ultra: 'Ultra-leggendario', unico: 'Unico' },
+ RARITA_PL: { comune: 'Comuni', epico: 'Epici', leggendario: 'Leggendari', ultra: 'Ultra-leggendari', unico: 'Unici' },
  FONT_POST: { titolo: 'Calistoga,serif', sc: "'Alegreya Sans SC',sans-serif", testo: 'Montserrat,sans-serif' }
 };
 var TEMA_DEF = {
@@ -48,7 +51,8 @@ if (C.TEMA) { for (k in C.TEMA) { if (C.TEMA.hasOwnProperty(k)) { T[k] = C.TEMA[
 var M = C.MERCANTE || { id: 'mercante', nome: 'Mercante', titolo: '' };
 var F = C.FONT_POST;
 var HAS_SELL = !!(C.VENDITE && C.VENDITE.length);
-var LBL_GO = C.TESTO_CONFERMA || (HAS_SELL ? 'Conferma' : 'Acquista');
+var HAS_REC = !!(C.RICICLO && C.RICICLO.length);
+var LBL_GO = C.TESTO_CONFERMA || (HAS_REC ? 'Ricicla' : (HAS_SELL ? 'Conferma' : 'Acquista'));
 
 var IH = 'inn' + 'erHTML';
 var CATS = [];   /* categorie del listino (acquisti) */
@@ -57,6 +61,7 @@ var QTA = [];    /* quantita' nel carrello, stesso indice di ITEMS */
 var SLOTS = [];  /* elemento .mc-qty di ogni voce (null se nella pagina manca) */
 var SCATS = [];  /* categorie delle vendite */
 var LINES = [];  /* righe vendute: { id, sc, v, q, num, prezzo, slot, gone } */
+var RSCH = [];   /* schede del riciclo */
 var USER = null;
 var busy = false;
 
@@ -80,6 +85,7 @@ function nowStr() {
  return s;
 }
 function formato(f) { var s = (f === 'banner' || f === 'carta' || f === 'icona') ? f : 'quadro'; return s; }
+function rarPlural(r) { var s = (C.RARITA_PL && C.RARITA_PL[r]) ? C.RARITA_PL[r] : rarLabel(r); return s; }
 function rarLabel(r) { var s = (C.RARITA && C.RARITA[r]) ? C.RARITA[r] : (r || ''); return s; }
 function qtaLabel(it, q) {
  var s = it.unita ? (q + ' ' + (q === 1 ? it.unita[0] : it.unita[1])) : String(q);
@@ -131,6 +137,18 @@ function injectCss() {
  '#mc-shop .mc-line-n small{display:block;font-size:12px;font-weight:400;color:var(--mc-secondario)}' +
  '#mc-shop .mc-line-p{flex:0 0 auto;font-weight:700;color:var(--mc-titoli);white-space:nowrap}' +
  '#mc-shop .mc-line .mc-qty{margin:0}' +
+ /* riciclo */
+ '#mc-shop .mc-rec{display:flex;flex-direction:column;gap:8px;margin:10px 0 0;font-family:var(--mc-font);font-size:14px;color:var(--mc-testo);text-align:left;text-transform:none;letter-spacing:normal}' +
+ '#mc-shop .mc-tgs{display:flex}' +
+ '#mc-shop button.mc-tg{display:block;flex:1 1 0;width:auto;height:30px;margin:0;padding:0 8px;border:1px solid var(--mc-linea);background:transparent;color:var(--mc-secondario);font-family:var(--mc-font-titoli);font-size:13px;font-weight:700;cursor:pointer;box-shadow:none}' +
+ '#mc-shop button.mc-tg + button.mc-tg{border-left:0}' +
+ '#mc-shop button.mc-tg-on{background:var(--mc-bottone);color:var(--mc-bottonetesto);border-color:var(--mc-cornicebordo)}' +
+ '#mc-shop .mc-rec .mc-sell-f select{flex:1 1 140px}' +
+ '#mc-shop .mc-rec .mc-line-n{flex:1 1 100px;font-size:14px}' +
+ '#mc-shop .mc-rec-p{font-size:13px;font-style:italic;color:var(--mc-secondario)}' +
+ '#mc-shop .mc-rec-p:empty{display:none}' +
+ '#mc-shop .mc-rec-p b{font-style:normal;color:var(--mc-titoli)}' +
+ '#mc-shop .mc-rec-p .mc-miss{color:var(--mc-accento)}' +
  /* barra di conferma */
  '#mc-bar{min-width:0;max-width:100%;font-family:var(--mc-font);color:var(--mc-testo);font-size:14px;line-height:1.4;text-align:left}' +
  '#mc-bar .mc-top{display:flex;align-items:baseline;gap:10px;margin:0 0 8px}' +
@@ -365,6 +383,155 @@ function removeLine(id) {
  updateSum();
 }
 
+/* ---------- riciclo (lotti di oggetti in cambio di Jenny o materiali) ---------- */
+
+function recCount(s) { var n = 0; for (var k2 in s.q) { if (s.q.hasOwnProperty(k2)) { n += s.q[k2]; } } return n; }
+function recLots(s) { var l = Math.floor(recCount(s) / s.lotto); return l; }
+function recMatText(s, lots) {
+ var out = [];
+ for (var i = 0; i < s.mat.length; i++) { out.push((s.mat[i][1] * lots) + ' ' + s.mat[i][0]); }
+ return out.join(', ');
+}
+function recReward(s, lots) { var t = (s.mode === 'mat' && s.mat) ? recMatText(s, lots) : money(lots * s.jenny); return t; }
+function recTitle(s, lots) {
+ var t = rarPlural(s.rar) + ' · ' + lots + (lots === 1 ? ' lotto' : ' lotti') + ' da ' + s.lotto;
+ return t;
+}
+
+function readRiciclo() {
+ var lst = C.RICICLO || [], i, j, e, sc, key = {};
+ for (i = 0; i < lst.length; i++) {
+  e = lst[i];
+  for (j = 0; j < (e.schede || []).length; j++) {
+   sc = e.schede[j];
+   var voci = [];
+   for (var v = 0; v < (e.voci || []).length; v++) { if (e.voci[v].rar === sc.rar) { voci.push(e.voci[v]); } }
+   key[norm(e.espansione + '|' + sc.rar)] = RSCH.length;
+   RSCH.push({ k: RSCH.length, exp: e.espansione, rar: sc.rar, lotto: Number(sc.lotto) || 1, jenny: Number(sc.jenny) || 0,
+    mat: sc.materiali || null, voci: voci, q: {}, order: [], mode: 'jenny', el: null });
+  }
+ }
+ var boxes = root.querySelectorAll('.mc-rec[data-mc-rec]');
+ for (i = 0; i < boxes.length; i++) {
+  var nm = norm(boxes[i].getAttribute('data-mc-rec'));
+  if (!key.hasOwnProperty(nm)) { warn('"' + nm + '" non e\' nel RICICLO'); continue; }
+  buildRecBox(RSCH[key[nm]], boxes[i]);
+ }
+}
+
+function buildRecBox(s, box) {
+ s.el = box;
+ var h = '';
+ if (s.mat) {
+  h += '<div class="mc-tgs"><button type="button" class="mc-tg mc-tg-on" data-rmode="jenny" data-rk="' + s.k + '">Jenny</button>' +
+   '<button type="button" class="mc-tg" data-rmode="mat" data-rk="' + s.k + '">Materiali</button></div>';
+ }
+ h += '<div class="mc-sell-f"><select id="mc-rs-' + s.k + '" aria-label="Oggetto da consegnare"><option value="">-- Aggiungi un oggetto --</option>';
+ for (var i = 0; i < s.voci.length; i++) { h += '<option value="' + i + '">' + esc(s.voci[i].nome) + '</option>'; }
+ h += '</select><button type="button" class="mc-add" data-radd="' + s.k + '">Aggiungi</button></div>' +
+  '<div class="mc-sell-l" id="mc-rl-' + s.k + '"></div><div class="mc-rec-p" id="mc-rp-' + s.k + '"></div>';
+ box[IH] = h;
+}
+
+function renderRecList(s) {
+ var box = byId('mc-rl-' + s.k), h = '', i, vi;
+ if (!box) { return; }
+ for (i = 0; i < s.order.length; i++) {
+  vi = s.order[i];
+  h += '<div class="mc-line"><span class="mc-line-n">' + esc(s.voci[vi].nome) + '</span>' +
+   '<span class="mc-qty">' + qtyHtml('data-rop', ['rv', s.k + '_' + vi], 'mc-rq-' + s.k + '_' + vi, s.voci[vi].nome) + '</span></div>';
+ }
+ box[IH] = h;
+ for (i = 0; i < s.order.length; i++) { byId('mc-rq-' + s.k + '_' + s.order[i]).value = String(s.q[s.order[i]]); }
+ updateRecProg(s);
+}
+
+function updateRecProg(s) {
+ var p = byId('mc-rp-' + s.k), n = recCount(s);
+ if (s.el) { if (n > 0) { addClass(s.el.parentNode, 'mc-on'); } else { delClass(s.el.parentNode, 'mc-on'); } }
+ if (!p) { return; }
+ if (!n) { p[IH] = ''; return; }
+ var lots = recLots(s), rest = n % s.lotto;
+ var h = n + (n === 1 ? ' oggetto' : ' oggetti') + ' · <b>' + lots + (lots === 1 ? ' lotto' : ' lotti') + '</b>';
+ if (lots) { h += ' → <b>' + esc(recReward(s, lots)) + '</b>'; }
+ if (rest) { h += '<br><span class="mc-miss">ne mancano ' + (s.lotto - rest) + ' per completare il lotto, oppure togline ' + rest + '</span>'; }
+ p[IH] = h;
+}
+
+function addRec(k) {
+ if (busy) { return; }
+ var s = RSCH[k], sel = byId('mc-rs-' + k);
+ if (!sel || sel.value === '') { setStatus('Scegli l\'oggetto da consegnare.', true); return; }
+ var vi = parseInt(sel.value, 10);
+ if (s.q.hasOwnProperty(vi)) { s.q[vi] = Math.min(C.MAX_QTA, s.q[vi] + 1); } else { s.q[vi] = 1; s.order.push(vi); }
+ sel.value = '';
+ setStatus('');
+ renderRecList(s);
+ updateSum();
+}
+
+function setRecQ(k, vi, v, fromInput) {
+ var s = RSCH[k];
+ if (busy || !s || !s.q.hasOwnProperty(vi)) { return; }
+ v = parseInt(v, 10) || 0;
+ if (v < 0) { v = 0; }
+ if (v > C.MAX_QTA) { v = C.MAX_QTA; }
+ if (v === 0 && !fromInput) {
+  delete s.q[vi];
+  var o = [];
+  for (var i = 0; i < s.order.length; i++) { if (s.order[i] !== vi) { o.push(s.order[i]); } }
+  s.order = o;
+  renderRecList(s);
+  updateSum();
+  return;
+ }
+ s.q[vi] = v;
+ var inp = byId('mc-rq-' + k + '_' + vi);
+ if (inp && !(fromInput && inp.value === '') && inp.value !== String(v)) { inp.value = String(v); }
+ updateRecProg(s);
+ updateSum();
+}
+
+function setRecMode(k, mode) {
+ var s = RSCH[k];
+ if (busy || !s || !s.mat) { return; }
+ s.mode = mode === 'mat' ? 'mat' : 'jenny';
+ var bt = s.el.querySelectorAll('button.mc-tg');
+ for (var i = 0; i < bt.length; i++) {
+  if (bt[i].getAttribute('data-rmode') === s.mode) { addClass(bt[i], 'mc-tg-on'); } else { delClass(bt[i], 'mc-tg-on'); }
+ }
+ updateRecProg(s);
+ updateSum();
+}
+
+function cartRec() {
+ var out = [];
+ for (var i = 0; i < RSCH.length; i++) {
+  var s = RSCH[i], n = recCount(s);
+  if (n > 0) { out.push({ s: s, n: n, lots: recLots(s), sub: (s.mode === 'mat' && s.mat) ? 0 : recLots(s) * s.jenny }); }
+ }
+ return out;
+}
+function recMats(rc) {
+ var tot = {}, order = [], i, j, m;
+ for (i = 0; i < rc.length; i++) {
+  if (rc[i].s.mode !== 'mat' || !rc[i].s.mat) { continue; }
+  for (j = 0; j < rc[i].s.mat.length; j++) {
+   m = rc[i].s.mat[j];
+   if (!tot.hasOwnProperty(m[0])) { tot[m[0]] = 0; order.push(m[0]); }
+   tot[m[0]] += m[1] * rc[i].lots;
+  }
+ }
+ var out = [];
+ for (i = 0; i < order.length; i++) { if (tot[order[i]]) { out.push(tot[order[i]] + ' ' + order[i]); } }
+ return out.join(', ');
+}
+function recItemsText(s) {
+ var out = [];
+ for (var i = 0; i < s.order.length; i++) { out.push(s.voci[s.order[i]].nome + ' ×' + s.q[s.order[i]]); }
+ return out.join(' · ');
+}
+
 /* ---------- barra ---------- */
 
 function buildBar() {
@@ -406,14 +573,20 @@ function cartSell() {
 function total(c) { var t = 0; for (var i = 0; i < c.length; i++) { t += c[i].sub; } return t; }
 
 function updateSum() {
- var c = cart(), sv = cartSell(), pezzi = 0, i, parts = [];
+ var c = cart(), sv = cartSell(), rc = cartRec(), pezzi = 0, i, parts = [], lots = 0;
  for (i = 0; i < c.length; i++) { pezzi += c[i].q; }
+ for (i = 0; i < rc.length; i++) { lots += rc[i].lots; }
  if (c.length) { parts.push(c.length + (c.length === 1 ? ' acquisto' : ' acquisti') + (pezzi !== c.length ? ' (' + pezzi + ' pezzi)' : '')); }
  if (sv.length) { parts.push(sv.length + (sv.length === 1 ? ' vendita' : ' vendite')); }
- if (!HAS_SELL && c.length) { parts = [c.length + (c.length === 1 ? ' articolo' : ' articoli') + (pezzi !== c.length ? ' (' + pezzi + ' pezzi)' : '')]; }
- byId('mc-count').textContent = parts.length ? parts.join(' · ') :
-  (HAS_SELL ? 'vuoto: scegli cosa comprare o vendere' : 'vuoto: scegli le quantità nel listino');
- byId('mc-tot').textContent = sv.length ? ('Saldo ' + signed(total(sv) - total(c))) : money(total(c));
+ if (rc.length) { parts.push(lots + (lots === 1 ? ' lotto' : ' lotti')); }
+ if (!HAS_SELL && !HAS_REC && c.length) { parts = [c.length + (c.length === 1 ? ' articolo' : ' articoli') + (pezzi !== c.length ? ' (' + pezzi + ' pezzi)' : '')]; }
+ byId('mc-count').textContent = parts.length ? parts.join(' \u00b7 ') :
+  (HAS_REC ? 'vuoto: aggiungi gli oggetti da consegnare' : (HAS_SELL ? 'vuoto: scegli cosa comprare o vendere' : 'vuoto: scegli le quantit\u00e0 nel listino'));
+ var inc = total(sv) + total(rc), mats = recMats(rc);
+ if (c.length && (sv.length || rc.length)) { byId('mc-tot').textContent = 'Saldo ' + signed(inc - total(c)) + (mats ? ' + materiali' : ''); }
+ else if (c.length) { byId('mc-tot').textContent = money(total(c)); }
+ else if (sv.length || rc.length) { byId('mc-tot').textContent = (inc || !mats ? '+' + money(inc) : '') + (mats ? (inc ? ' + materiali' : 'Materiali') : ''); }
+ else { byId('mc-tot').textContent = money(0); }
 }
 
 function clearAll() {
@@ -424,6 +597,7 @@ function clearAll() {
   else { LINES[i].gone = true; }
  }
  for (i = 0; i < SCATS.length; i++) { if (SCATS[i].tipo === 'elenco') { renderSellList(i); } }
+ for (i = 0; i < RSCH.length; i++) { RSCH[i].q = {}; RSCH[i].order = []; renderRecList(RSCH[i]); }
  updateSum();
  setStatus('');
 }
@@ -447,6 +621,16 @@ function bindUi() {
   } else if (srem !== null && srem !== '') {
    e.preventDefault();
    removeLine(parseInt(srem, 10));
+  } else if (b.getAttribute('data-rop')) {
+   e.preventDefault();
+   var rv = b.getAttribute('data-rv').split('_'), rk = parseInt(rv[0], 10), rvi = parseInt(rv[1], 10);
+   setRecQ(rk, rvi, RSCH[rk].q[rvi] + parseInt(b.getAttribute('data-rop'), 10));
+  } else if (b.getAttribute('data-radd') !== null && b.getAttribute('data-radd') !== '') {
+   e.preventDefault();
+   addRec(parseInt(b.getAttribute('data-radd'), 10));
+  } else if (b.getAttribute('data-rmode')) {
+   e.preventDefault();
+   setRecMode(parseInt(b.getAttribute('data-rk'), 10), b.getAttribute('data-rmode'));
   }
  });
  root.addEventListener('input', function (e) {
@@ -455,6 +639,7 @@ function bindUi() {
   var clean = t.value.replace(/\D/g, '');
   if (clean !== t.value) { t.value = clean; }
   if (t.getAttribute('data-l') !== null) { setLineQ(parseInt(t.getAttribute('data-l'), 10), clean, true); }
+  else if (t.getAttribute('data-rv') !== null) { var p2 = t.getAttribute('data-rv').split('_'); setRecQ(parseInt(p2[0], 10), parseInt(p2[1], 10), clean, true); }
   else { setQta(parseInt(t.getAttribute('data-i'), 10), clean, true); }
  });
  root.addEventListener('change', function (e) {
@@ -464,6 +649,7 @@ function bindUi() {
    var l = LINES[parseInt(t.getAttribute('data-l'), 10)];
    if (l && !l.slot) { setLineQ(l.id, 0); return; }
   }
+  if (t.getAttribute('data-rv') !== null) { var p3 = t.getAttribute('data-rv').split('_'); setRecQ(parseInt(p3[0], 10), parseInt(p3[1], 10), 0); return; }
   t.value = '0';
  });
  byId('mc-clear').addEventListener('click', clearAll);
@@ -517,7 +703,7 @@ function totRow(label, val, big) {
  return s;
 }
 
-function buildPost(c, sv) {
+function buildPost(c, sv, rc) {
  var i, ci, rows;
  var h = '<div style="max-width:600px;margin:0 auto;padding:7px;background:' + T.cornice + ';border:1px solid ' + T.cornicebordo + ';border-radius:3px;text-align:left;">';
  h += '<div style="padding:14px 12px;background:' + T.fondo + ';border:1px solid ' + T.bordo + ';border-radius:2px;font-family:' + F.testo + ';font-size:13px;line-height:1.45;overflow-wrap:normal;word-break:normal;color:' + T.testo + ';">';
@@ -525,7 +711,7 @@ function buildPost(c, sv) {
  if (M.titolo) { h += '<div style="' + scStyle(15, T.secondario) + 'text-align:center;">' + esc(M.titolo) + '</div>'; }
  h += '<div style="height:1px;margin:10px 0 12px;background:linear-gradient(90deg,' + T.accento + ',' + T.fondo + ');"></div>';
  h += '<table style="width:100%;border-collapse:collapse;border:0;margin:0 0 4px;">' +
-  infoRow(HAS_SELL ? 'Utente' : 'Acquirente', esc(USER.name)) + infoRow('Data', nowStr()) + '</table>';
+  infoRow((HAS_SELL || HAS_REC) ? 'Utente' : 'Acquirente', esc(USER.name)) + infoRow('Data', nowStr()) + '</table>';
 
  if (c.length) {
   if (sv.length) { h += sectionLabel('Acquisti'); }
@@ -551,15 +737,25 @@ function buildPost(c, sv) {
   }
  }
 
- h += '<div style="margin:12px 0 0;padding:2px 2px 0 0;border-top:1px solid ' + T.linea + ';">';
- if (sv.length && c.length) {
-  h += totRow('Totale acquisti', money(total(c)), false) + totRow('Totale vendite', money(total(sv)), false) +
-   totRow('Saldo', signed(total(sv) - total(c)), true);
- } else if (sv.length) {
-  h += totRow('Totale vendite', money(total(sv)), true);
- } else {
-  h += totRow('Totale', money(total(c)), true);
+ if (rc.length) {
+  h += sectionLabel('Lotti consegnati a ' + M.nome);
+  var lastExp = null;
+  for (i = 0; i < rc.length; i++) {
+   if (rc[i].s.exp !== lastExp) { h += catLabel(rc[i].s.exp); lastExp = rc[i].s.exp; }
+   h += rowPost(recTitle(rc[i].s, rc[i].lots), '', 'quadro', esc(recItemsText(rc[i].s)), esc(recReward(rc[i].s, rc[i].lots)));
+  }
  }
+
+ var cT = total(c), inc = total(sv) + total(rc), mats = recMats(rc), mix = (c.length ? 1 : 0) + (sv.length ? 1 : 0) + (rc.length ? 1 : 0);
+ h += '<div style="margin:12px 0 0;padding:2px 2px 0 0;border-top:1px solid ' + T.linea + ';">';
+ if (mix > 1 && c.length) { h += totRow('Totale acquisti', money(cT), false); }
+ if (mix > 1 && sv.length) { h += totRow('Totale vendite', money(total(sv)), false); }
+ if (mix > 1 && rc.length && total(rc)) { h += totRow('Jenny dal riciclo', money(total(rc)), false); }
+ if (mats) { h += totRow('Materiali ricevuti', esc(mats), false); }
+ if (c.length && mix > 1) { h += totRow('Saldo', signed(inc - cT), true); }
+ else if (c.length) { h += totRow('Totale', money(cT), true); }
+ else if (sv.length && !rc.length) { h += totRow('Totale vendite', money(inc), true); }
+ else if (inc || !mats) { h += totRow('Jenny ricevuti', money(inc), true); }
  h += '</div>';
  h += '</div></div>';
  return h;
@@ -695,7 +891,8 @@ function freezeBox(on) {
  var pan = bar.previousElementSibling, i;
  if (on) {
   if (frozen.length || !pan) { return; }
-  var ov = window.getComputedStyle(pan).overflowY;
+  var sc = pan, ov = window.getComputedStyle(pan).overflowY;
+  if (ov !== 'auto' && ov !== 'scroll' && pan.firstElementChild) { sc = pan.firstElementChild; ov = window.getComputedStyle(sc).overflowY; }
   if (ov !== 'auto' && ov !== 'scroll') { return; }
   frozen.push([pan, pan.style.height, pan.style.flex]);
   pan.style.height = pan.offsetHeight + 'px';
@@ -761,13 +958,17 @@ function showResult(html, mode, topicId) {
 
 function onGo() {
  if (busy) { return; }
- var c = cart(), sv = cartSell();
+ var c = cart(), sv = cartSell(), rc = cartRec();
  var manual = byId('mc-topic-manual').value.replace(/\D/g, '');
  var tSel = byId('mc-topic');
  var topicId = manual || tSel.value;
  var topicTitle = manual ? ('topic ' + manual) : (tSel.selectedIndex >= 0 ? tSel.options[tSel.selectedIndex].text : '');
 
- if (!c.length && !sv.length) { setStatus(HAS_SELL ? 'Il carrello e\' vuoto: scegli cosa comprare o vendere.' : 'Il carrello e\' vuoto: scegli le quantita\' nel listino.', true); return; }
+ for (var ri = 0; ri < rc.length; ri++) {
+  var rr = rc[ri], rest = rr.n % rr.s.lotto;
+  if (rest) { setStatus(rarPlural(rr.s.rar) + ' (' + rr.s.exp + '): hai ' + rr.n + ' oggetti, ma i lotti sono da ' + rr.s.lotto + '. Aggiungine ' + (rr.s.lotto - rest) + ' o togline ' + rest + '.', true); return; }
+ }
+ if (!c.length && !sv.length && !rc.length) { setStatus(HAS_REC ? 'Il carrello e\' vuoto: aggiungi gli oggetti da consegnare.' : HAS_SELL ? 'Il carrello e\' vuoto: scegli cosa comprare o vendere.' : 'Il carrello e\' vuoto: scegli le quantita\' nel listino.', true); return; }
  if (!topicId) { setStatus('Scegli la tua Lista della Spesa (o scrivi l\'ID del topic).', true); return; }
 
  var ask = '', i;
@@ -783,7 +984,12 @@ function onGo() {
    ask += '- ' + l.q + ' x ' + l.v.nome + (d ? ' [' + d + ']' : '') + ' (' + money(sv[i].sub) + ')\n';
   }
   ask += 'Totale vendite: ' + money(total(sv)) + '\n\n';
-  if (c.length) { ask += 'Saldo: ' + signed(total(sv) - total(c)) + '\n\n'; }
+  if (c.length && !rc.length) { ask += 'Saldo: ' + signed(total(sv) - total(c)) + '\n\n'; }
+ }
+ if (rc.length) {
+  ask += 'Lotti consegnati a ' + M.nome + ':\n';
+  for (i = 0; i < rc.length; i++) { ask += '- ' + rc[i].s.exp + ' \u00b7 ' + recTitle(rc[i].s, rc[i].lots) + ' (' + rc[i].n + ' oggetti) \u2192 ' + recReward(rc[i].s, rc[i].lots) + '\n'; }
+  ask += '\n';
  }
  ask += 'Il post verra\' pubblicato in: ' + topicTitle + '\n\nConfermi?';
  if (!window.confirm(ask)) { return; }
@@ -793,7 +999,7 @@ function onGo() {
  byId('mc-clear').disabled = true;
  byId('mc-result')[IH] = '';
 
- var html = buildPost(c, sv);
+ var html = buildPost(c, sv, rc);
  if (C.TEST_MODE) { showResult(html, 'test', topicId); return; }
  setStatus('Pubblico il post...');
  postReply(C.SECTION_ID, topicId, html, function (ok) {
@@ -813,6 +1019,7 @@ function init() {
  readListino();
  buildSlots();
  readVendite();
+ readRiciclo();
  buildBar();
  bindUi();
  updateSum();
