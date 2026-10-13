@@ -14,8 +14,6 @@ root.setAttribute('data-mc-ok', '1');
 
 var DEF = {
  SECTION_ID: 65118748,
- FIREBASE_DB_URL: 'https://spam-limitato-e-illimitato-default-rtdb.europe-west1.firebasedatabase.app',
- DB_ROOT: '/mercanti',
  TEST_MODE: false,
  MAX_QTA: 99,
  VALUTA: 'Jenny',
@@ -39,7 +37,6 @@ var M = C.MERCANTE || { id: 'mercante', nome: 'Mercante', titolo: '' };
 var F = C.FONT_POST;
 
 var IH = 'inn' + 'erHTML';
-var DB = String(C.FIREBASE_DB_URL).replace(/\/+$/, '') + C.DB_ROOT;
 var CATS = [];   /* categorie con almeno una voce in vendita */
 var ITEMS = [];  /* voci in vendita, in ordine */
 var QTA = [];    /* quantita' nel carrello, stesso indice di ITEMS */
@@ -262,28 +259,6 @@ function bindUi() {
  byId('mc-go').addEventListener('click', onGo);
 }
 
-/* ---------- Firebase (REST): solo registro degli acquisti ---------- */
-
-function fbReq(method, path, body, cb) {
- var opts = { method: method };
- if (body !== undefined) { opts.body = JSON.stringify(body); }
- fetch(DB + path + '.json', opts)
-  .then(function (r) { if (!r.ok) { throw new Error('HTTP ' + r.status); } var j = r.json(); return j; })
-  .then(function (data) { later(function () { cb(null, data); }); })
-  .catch(function (e) { later(function () { cb(e, null); }); });
-}
-function logStart(entry, cb) {
- if (C.TEST_MODE) { cb(null, 'TEST'); return; }
- fbReq('POST', '/log', entry, function (err, res) {
-  if (err || !res || !res.name) { cb(err || new Error('log'), null); return; }
-  cb(null, res.name);
- });
-}
-function logUpdate(logId, data, cb) {
- if (C.TEST_MODE) { cb(); return; }
- fbReq('PATCH', '/log/' + logId, data, function () { cb(); });
-}
-
 /* ---------- HTML del post (una riga, stili inline, colori del mercante) ---------- */
 
 function scStyle(size, color) {
@@ -314,7 +289,7 @@ function itemRowPost(r) {
  return h;
 }
 
-function buildPost(c, logId) {
+function buildPost(c) {
  var h = '<div style="max-width:600px;margin:0 auto;padding:7px;background:' + T.cornice + ';border:1px solid ' + T.cornicebordo + ';border-radius:3px;text-align:left;">';
  h += '<div style="padding:16px 18px;background:' + T.fondo + ';border:1px solid ' + T.bordo + ';border-radius:2px;font-family:' + F.testo + ';font-size:13px;line-height:1.45;color:' + T.testo + ';">';
  h += '<div style="font-family:' + F.titolo + ';font-size:26px;color:' + T.titoli + ';text-align:center;letter-spacing:1px;">' + esc(M.nome) + '</div>';
@@ -334,7 +309,6 @@ function buildPost(c, logId) {
  h += '<table style="width:100%;border-collapse:collapse;border:0;margin:10px 0 0;border-top:1px solid ' + T.linea + ';"><tr>' +
   '<td style="padding:8px 0 0;border:0;background:transparent;' + scStyle(17, T.titoli) + '">Totale</td>' +
   '<td style="padding:8px 10px 0 0;border:0;background:transparent;text-align:right;font-family:' + F.titolo + ';font-size:20px;color:' + T.titoli + ';">' + money(total(c)) + '</td></tr></table>';
- h += '<div style="font-size:10px;color:' + T.secondario + ';text-align:right;margin-top:10px;">Acquisto automatico - registro ' + esc(logId) + '</div>';
  h += '</div></div>';
  return h;
 }
@@ -482,7 +456,7 @@ function showResult(html, mode, topicId) {
   return;
  }
  if (mode === 'test') {
-  setStatus('Modalita\' test: niente post e niente registro. Questa e\' l\'anteprima.');
+  setStatus('Modalita\' test: niente post. Questa e\' l\'anteprima.');
   res.appendChild(prev);
   unlock();
   return;
@@ -518,26 +492,12 @@ function onGo() {
  byId('mc-go').disabled = true;
  byId('mc-clear').disabled = true;
  byId('mc-result')[IH] = '';
- setStatus('Registro l\'acquisto...');
 
- var articoli = [];
- for (i = 0; i < c.length; i++) { articoli.push({ nome: c[i].it.nome, qta: c[i].q, prezzo: c[i].it.prezzo }); }
- var entry = {
-  utente: USER.name, utenteId: USER.id, mercante: M.id || M.nome, topic: topicId,
-  articoli: articoli, totale: total(c),
-  data: new Date().toISOString(), ts: Date.now(), stato: 'in attesa'
- };
-
- logStart(entry, function (err, logId) {
-  if (err) { unlock(); setStatus('Non riesco a registrare l\'acquisto: riprova tra poco.', true); return; }
-  var html = buildPost(c, logId);
-  if (C.TEST_MODE) { showResult(html, 'test', topicId); return; }
-  setStatus('Pubblico il post...');
-  postReply(C.SECTION_ID, topicId, html, function (ok) {
-   logUpdate(logId, { stato: (ok ? 'postato' : 'post non riuscito') }, function () {
-    showResult(html, (ok ? 'ok' : 'fail'), topicId);
-   });
-  });
+ var html = buildPost(c);
+ if (C.TEST_MODE) { showResult(html, 'test', topicId); return; }
+ setStatus('Pubblico il post...');
+ postReply(C.SECTION_ID, topicId, html, function (ok) {
+  showResult(html, (ok ? 'ok' : 'fail'), topicId);
  });
 }
 
