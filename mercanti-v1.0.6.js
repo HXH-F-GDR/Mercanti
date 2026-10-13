@@ -65,7 +65,7 @@ function nowStr() {
  var s = pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
  return s;
 }
-function formato(f) { var s = (f === 'banner' || f === 'carta') ? f : 'quadro'; return s; }
+function formato(f) { var s = (f === 'banner' || f === 'carta' || f === 'icona') ? f : 'quadro'; return s; }
 function qtaLabel(it, q) {
  var s = it.unita ? (q + ' ' + (q === 1 ? it.unita[0] : it.unita[1])) : String(q);
  return s;
@@ -97,7 +97,7 @@ function injectCss() {
  if (byId('mc-shop-css')) { return; }
  var css = '' +
  /* selettori sotto gli articoli */
- '#mc-shop .mc-qty{display:flex;justify-content:center;align-items:center;margin:6px 0 0;font-family:var(--mc-font)}' +
+ ':where(#mc-shop) .mc-qty{display:flex;justify-content:center;align-items:center;margin:6px 0 0;font-family:var(--mc-font)}' +
  '#mc-shop .mc-qty:empty{display:none}' +
  '#mc-shop button.mc-b{display:inline-block;flex:0 0 auto;width:28px;height:28px;min-width:0;margin:0;padding:0;border:1px solid var(--mc-linea);border-radius:4px;background:var(--mc-fondo);color:var(--mc-titoli);font-family:var(--mc-font);font-size:17px;line-height:26px;text-align:center;cursor:pointer;box-shadow:none}' +
  '#mc-shop input.mc-in{display:inline-block;flex:0 0 auto;width:42px;height:28px;min-height:0;margin:0 4px;padding:0 2px;border:1px solid var(--mc-linea);border-radius:4px;background:var(--mc-fondo);color:var(--mc-testo);font-family:var(--mc-font);font-size:14px;text-align:center;box-shadow:none}' +
@@ -257,7 +257,7 @@ function scStyle(size, color) {
 }
 /* miniature nel post: i banner stanno sopra il testo (cosi' su mobile il testo resta largo),
    quadri e carte a sinistra */
-var THUMB_POST = { quadro: [44, 44], carta: [30, 60] };
+var THUMB_POST = { quadro: [44, 44], icona: [44, 44], carta: [30, 60] };
 
 function infoRow(label, val) {
  var s = '<tr><td style="width:95px;padding:2px 0;border:0;background:transparent;' + scStyle(14, T.secondario) + '">' + label + '</td>' +
@@ -272,7 +272,8 @@ function itemRowPost(r) {
   h += '<img style="display:block;width:100%;max-width:260px;height:auto;aspect-ratio:4/1;object-fit:cover;margin:0 0 6px;border:1px solid ' + T.linea + ';border-radius:3px;" src="' + esc(it.img) + '">';
  } else if (it.img) {
   var sz = THUMB_POST[it.formato];
-  h += '<img style="float:left;width:' + sz[0] + 'px;height:' + sz[1] + 'px;object-fit:cover;margin:0 10px 0 0;border:1px solid ' + T.linea + ';border-radius:3px;" src="' + esc(it.img) + '">';
+  var fit = it.formato === 'icona' ? 'object-fit:contain;padding:4px;box-sizing:border-box;background:' + T.fondo + ';' : 'object-fit:cover;';
+  h += '<img style="float:left;width:' + sz[0] + 'px;height:' + sz[1] + 'px;' + fit + 'margin:0 10px 0 0;border:1px solid ' + T.linea + ';border-radius:3px;" src="' + esc(it.img) + '">';
  }
  h += '<div style="overflow:hidden;">';
  h += '<div style="font-weight:bold;color:' + T.titoli + ';">' + esc(it.nome) + '</div>';
@@ -432,18 +433,25 @@ function postReply(sectionId, topicId, content, callback) {
 function unlock() { busy = false; byId('mc-go').disabled = false; byId('mc-clear').disabled = false; }
 
 /* Quando la barra si allarga, il pannello che scorre (l'elemento subito prima della barra)
-   mantiene la sua altezza e il box cresce verso il basso invece di comprimerlo. */
+   mantiene la sua altezza e i contenitori sopra crescono verso il basso invece di comprimerlo. */
+var frozen = [];
 function freezeBox(on) {
- var box = bar.parentNode, pan = bar.previousElementSibling;
- if (!box || !pan) { return; }
+ var pan = bar.previousElementSibling, i;
  if (on) {
+  if (frozen.length || !pan) { return; }
   var ov = window.getComputedStyle(pan).overflowY;
   if (ov !== 'auto' && ov !== 'scroll') { return; }
+  frozen.push([pan, pan.style.height, pan.style.flex]);
   pan.style.height = pan.offsetHeight + 'px';
   pan.style.flex = '0 0 auto';
-  box.style.height = 'auto';
+  /* tutti i contenitori sopra la barra (fino alla radice) perdono l'altezza fissa */
+  for (var el = bar.parentNode; el && el !== root.parentNode; el = el.parentNode) {
+   frozen.push([el, el.style.height, el.style.flex]);
+   el.style.height = 'auto';
+  }
  } else {
-  pan.style.height = ''; pan.style.flex = ''; box.style.height = '';
+  for (i = 0; i < frozen.length; i++) { frozen[i][0].style.height = frozen[i][1]; frozen[i][0].style.flex = frozen[i][2]; }
+  frozen = [];
  }
 }
 
