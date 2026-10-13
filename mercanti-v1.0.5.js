@@ -126,6 +126,9 @@ function injectCss() {
  '#mc-bar .mc-act{display:flex;justify-content:center;gap:8px;margin:10px 0 2px}' +
  '#mc-bar textarea{display:block;width:100%;min-height:110px;margin:8px 0 0;padding:6px;font-size:11px;background:var(--mc-riga);color:var(--mc-testo);border:1px solid var(--mc-linea);box-sizing:border-box}' +
  /* mobile */
+ 'body.ffm #mc-bar .mc-top{flex-wrap:wrap;row-gap:2px}' +
+ 'body.ffm #mc-bar .mc-t{flex:1 1 auto}' +
+ 'body.ffm #mc-bar .mc-count{order:3;flex:1 1 100%}' +
  'body.ffm #mc-bar select{flex:1 1 100%}' +
  'body.ffm #mc-bar input.mc-txt{flex:1 1 auto;width:auto;min-width:0}' +
  'body.ffm #mc-bar input.mc-txt{max-width:none}';
