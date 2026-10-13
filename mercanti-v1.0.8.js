@@ -149,7 +149,7 @@ function injectCss() {
  '#mc-bar #mc-status.mc-err{color:var(--mc-accento);font-weight:600}' +
  '#mc-bar .mc-hint:empty,#mc-bar #mc-status:empty,#mc-bar #mc-result:empty{display:none}' +
  '#mc-bar #mc-result{margin:10px 0 0;padding:10px 0 0;border-top:1px dashed var(--mc-linea)}' +
- '#mc-bar .mc-preview{padding:12px 8px;background:#8FBEBA;border-radius:6px;overflow-wrap:break-word}' +
+ '#mc-bar .mc-preview{padding:12px 8px;background:#8FBEBA;border-radius:6px}' +
  '#mc-bar .mc-act{display:flex;justify-content:center;gap:8px;margin:10px 0 2px}' +
  '#mc-bar textarea{display:block;width:100%;min-height:110px;margin:8px 0 0;padding:6px;font-size:11px;background:var(--mc-riga);color:var(--mc-testo);border:1px solid var(--mc-linea);box-sizing:border-box}' +
  /* mobile */
@@ -497,7 +497,7 @@ function rowPost(nome, img, fmtThumb, detail, sub) {
  }
  h += '<div style="overflow:hidden;">';
  h += '<div style="font-weight:bold;color:' + T.titoli + ';">' + esc(nome) + '</div>';
- h += '<div style="font-size:12px;color:' + T.secondario + ';">' + detail + ' <span style="float:right;margin:0 0 0 8px;font-size:13px;font-weight:bold;white-space:nowrap;color:' + T.titoli + ';">' + sub + '</span></div>';
+ h += '<div style="font-size:12px;color:' + T.secondario + ';">' + detail + ' <span style="float:right;max-width:100%;margin:0 0 0 8px;font-size:13px;font-weight:bold;text-align:right;color:' + T.titoli + ';">' + sub + '</span></div>';
  h += '</div></div>';
  return h;
 }
@@ -511,16 +511,16 @@ function sectionLabel(txt) {
  return s;
 }
 function totRow(label, val, big) {
- var s = '<tr><td style="padding:4px 0 0;border:0;background:transparent;white-space:nowrap;' + scStyle(big ? 17 : 15, big ? T.titoli : T.secondario) + '">' + label + '</td>' +
-  '<td style="padding:4px 10px 0 0;border:0;background:transparent;text-align:right;white-space:nowrap;' +
-  (big ? 'font-family:' + F.titolo + ';font-size:20px;' : 'font-weight:bold;') + 'color:' + T.titoli + ';">' + val + '</td></tr>';
+ var s = '<div style="overflow:hidden;padding:4px 0 0;' + scStyle(big ? 17 : 15, big ? T.titoli : T.secondario) + '">' + label +
+  ' <span style="float:right;max-width:100%;margin:0 0 0 10px;text-align:right;' +
+  (big ? 'font-family:' + F.titolo + ';font-size:20px;' : 'font-family:' + F.testo + ';font-size:13px;font-weight:bold;') + 'color:' + T.titoli + ';">' + val + '</span></div>';
  return s;
 }
 
 function buildPost(c, sv) {
  var i, ci, rows;
  var h = '<div style="max-width:600px;margin:0 auto;padding:7px;background:' + T.cornice + ';border:1px solid ' + T.cornicebordo + ';border-radius:3px;text-align:left;">';
- h += '<div style="padding:14px 12px;background:' + T.fondo + ';border:1px solid ' + T.bordo + ';border-radius:2px;font-family:' + F.testo + ';font-size:13px;line-height:1.45;color:' + T.testo + ';">';
+ h += '<div style="padding:14px 12px;background:' + T.fondo + ';border:1px solid ' + T.bordo + ';border-radius:2px;font-family:' + F.testo + ';font-size:13px;line-height:1.45;overflow-wrap:normal;word-break:normal;color:' + T.testo + ';">';
  h += '<div style="font-family:' + F.titolo + ';font-size:26px;color:' + T.titoli + ';text-align:center;letter-spacing:1px;">' + esc(M.nome) + '</div>';
  if (M.titolo) { h += '<div style="' + scStyle(15, T.secondario) + 'text-align:center;">' + esc(M.titolo) + '</div>'; }
  h += '<div style="height:1px;margin:10px 0 12px;background:linear-gradient(90deg,' + T.accento + ',' + T.fondo + ');"></div>';
@@ -551,7 +551,7 @@ function buildPost(c, sv) {
   }
  }
 
- h += '<table style="width:100%;border-collapse:collapse;border:0;margin:12px 0 0;border-top:1px solid ' + T.linea + ';">';
+ h += '<div style="margin:12px 0 0;padding:2px 2px 0 0;border-top:1px solid ' + T.linea + ';">';
  if (sv.length && c.length) {
   h += totRow('Totale acquisti', money(total(c)), false) + totRow('Totale vendite', money(total(sv)), false) +
    totRow('Saldo', signed(total(sv) - total(c)), true);
@@ -560,7 +560,7 @@ function buildPost(c, sv) {
  } else {
   h += totRow('Totale', money(total(c)), true);
  }
- h += '</table>';
+ h += '</div>';
  h += '</div></div>';
  return h;
 }
