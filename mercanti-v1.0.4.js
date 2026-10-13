@@ -120,7 +120,9 @@ function injectCss() {
  '#mc-bar #mc-status.mc-err{color:var(--mc-accento);font-weight:600}' +
  '#mc-bar .mc-hint:empty,#mc-bar #mc-status:empty,#mc-bar #mc-result:empty{display:none}' +
  '#mc-bar #mc-result{margin:10px 0 0;padding:10px 0 0;border-top:1px dashed var(--mc-linea)}' +
- '#mc-bar .mc-preview{padding:12px 8px;background:#8FBEBA;border-radius:6px}' +
+ '#mc-bar{min-width:0;max-width:100%}' +
+ '#mc-bar .mc-preview{padding:12px 8px;background:#8FBEBA;border-radius:6px;overflow-wrap:anywhere}' +
+ 'body.ffm #mc-bar .mc-preview{padding:8px 4px}' +
  '#mc-bar .mc-act{display:flex;justify-content:center;gap:8px;margin:10px 0 2px}' +
  '#mc-bar textarea{display:block;width:100%;min-height:110px;margin:8px 0 0;padding:6px;font-size:11px;background:var(--mc-riga);color:var(--mc-testo);border:1px solid var(--mc-linea);box-sizing:border-box}' +
  /* mobile */
@@ -250,33 +252,38 @@ function scStyle(size, color) {
  var s = 'font-family:' + F.sc + ';font-size:' + size + 'px;color:' + color + ';';
  return s;
 }
-var THUMB_POST = { quadro: [44, 44], banner: [96, 24], carta: [30, 60] };
+/* miniature nel post: i banner stanno sopra il testo (cosi' su mobile il testo resta largo),
+   quadri e carte a sinistra */
+var THUMB_POST = { quadro: [44, 44], carta: [30, 60] };
 
 function infoRow(label, val) {
- var s = '<tr><td style="width:110px;padding:2px 0;border:0;background:transparent;' + scStyle(14, T.secondario) + '">' + label + '</td>' +
+ var s = '<tr><td style="width:95px;padding:2px 0;border:0;background:transparent;' + scStyle(14, T.secondario) + '">' + label + '</td>' +
   '<td style="padding:2px 0;border:0;background:transparent;color:' + T.testo + ';">' + val + '</td></tr>';
  return s;
 }
 
 function itemRowPost(r) {
- var it = r.it, sz = THUMB_POST[it.formato];
- var cell = 'border:0;background:' + T.riga + ';vertical-align:middle;';
- var h = '<tr>';
- h += '<td style="' + cell + 'width:' + (sz[0] + 12) + 'px;padding:5px 6px;border-radius:4px 0 0 4px;">';
- if (it.img) {
-  h += '<img style="display:block;width:' + sz[0] + 'px;height:' + sz[1] + 'px;object-fit:cover;border:1px solid ' + T.linea + ';border-radius:3px;" src="' + esc(it.img) + '">';
+ var it = r.it, h = '';
+ h += '<div style="margin:4px 0 0;padding:6px 8px;background:' + T.riga + ';border-radius:4px;overflow:hidden;">';
+ if (it.img && it.formato === 'banner') {
+  h += '<img style="display:block;width:100%;max-width:260px;height:auto;aspect-ratio:4/1;object-fit:cover;margin:0 0 6px;border:1px solid ' + T.linea + ';border-radius:3px;" src="' + esc(it.img) + '">';
+ } else if (it.img) {
+  var sz = THUMB_POST[it.formato];
+  h += '<img style="float:left;width:' + sz[0] + 'px;height:' + sz[1] + 'px;object-fit:cover;margin:0 10px 0 0;border:1px solid ' + T.linea + ';border-radius:3px;" src="' + esc(it.img) + '">';
  }
- h += '</td>';
- h += '<td style="' + cell + 'padding:5px 8px;"><div style="font-weight:bold;color:' + T.titoli + ';">' + esc(it.nome) + '</div>' +
-  '<div style="font-size:12px;color:' + T.secondario + ';">' + esc(qtaLabel(it, r.q)) + ' &times; ' + money(it.prezzo) + '</div></td>';
- h += '<td style="' + cell + 'width:110px;padding:5px 10px;text-align:right;font-weight:bold;color:' + T.titoli + ';border-radius:0 4px 4px 0;">' + money(r.sub) + '</td>';
- h += '</tr>';
+ h += '<div style="overflow:hidden;">';
+ h += '<div style="font-weight:bold;color:' + T.titoli + ';">' + esc(it.nome) + '</div>';
+ h += '<table style="width:100%;border-collapse:collapse;border:0;margin:0;"><tr>' +
+  '<td style="padding:0;border:0;background:transparent;font-size:12px;color:' + T.secondario + ';">' + esc(qtaLabel(it, r.q)) + ' &times; ' + money(it.prezzo) + '</td>' +
+  '<td style="padding:0 0 0 8px;border:0;background:transparent;text-align:right;white-space:nowrap;vertical-align:bottom;font-weight:bold;color:' + T.titoli + ';">' + money(r.sub) + '</td>' +
+  '</tr></table>';
+ h += '</div></div>';
  return h;
 }
 
 function buildPost(c) {
  var h = '<div style="max-width:600px;margin:0 auto;padding:7px;background:' + T.cornice + ';border:1px solid ' + T.cornicebordo + ';border-radius:3px;text-align:left;">';
- h += '<div style="padding:16px 18px;background:' + T.fondo + ';border:1px solid ' + T.bordo + ';border-radius:2px;font-family:' + F.testo + ';font-size:13px;line-height:1.45;color:' + T.testo + ';">';
+ h += '<div style="padding:14px 12px;background:' + T.fondo + ';border:1px solid ' + T.bordo + ';border-radius:2px;font-family:' + F.testo + ';font-size:13px;line-height:1.45;color:' + T.testo + ';">';
  h += '<div style="font-family:' + F.titolo + ';font-size:26px;color:' + T.titoli + ';text-align:center;letter-spacing:1px;">' + esc(M.nome) + '</div>';
  if (M.titolo) { h += '<div style="' + scStyle(15, T.secondario) + 'text-align:center;">' + esc(M.titolo) + '</div>'; }
  h += '<div style="height:1px;margin:10px 0 12px;background:linear-gradient(90deg,' + T.accento + ',' + T.fondo + ');"></div>';
@@ -287,8 +294,7 @@ function buildPost(c) {
   var rows = '';
   for (var i = 0; i < c.length; i++) { if (c[i].it.cat === ci) { rows += itemRowPost(c[i]); } }
   if (!rows) { continue; }
-  h += '<div style="' + scStyle(15, T.accento) + 'margin:12px 0 2px;">' + esc(CATS[ci].nome) + '</div>';
-  h += '<table style="width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0 4px;border:0;margin:0;">' + rows + '</table>';
+  h += '<div style="' + scStyle(15, T.accento) + 'margin:12px 0 0;">' + esc(CATS[ci].nome) + '</div>' + rows;
  }
 
  h += '<table style="width:100%;border-collapse:collapse;border:0;margin:10px 0 0;border-top:1px solid ' + T.linea + ';"><tr>' +
