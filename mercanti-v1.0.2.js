@@ -1,13 +1,17 @@
 /* =====================================================================
    NEGOZIO DEI MERCANTI - motore unico
-   Il listino, i colori e i testi stanno in window.MERCANTE_CONFIG,
-   scritto nella pagina di ogni mercante prima di questo script.
-   Il carrello va in un elemento con id="mc-shop".
+   Nella pagina del mercante servono:
+   - window.MERCANTE_CONFIG (listino, colori, testi), scritto prima di questo script;
+   - un contenitore con id="mc-shop" (di solito la radice del layout);
+   - sotto ogni articolo acquistabile: <div class="mc-qty" data-mc="Nome come nel LISTINO"></div>;
+   - la barra di conferma: <div id="mc-bar"></div>.
+   Il genitore di ogni .mc-qty riceve la classe mc-on quando l'articolo e' nel carrello.
    ===================================================================== */
 ;(function () {
 var CFG = window.MERCANTE_CONFIG;
 var root = document.getElementById('mc-shop');
-if (!CFG || !root || root.getAttribute('data-mc-ok')) { return; }
+var bar = document.getElementById('mc-bar');
+if (!CFG || !root || !bar || root.getAttribute('data-mc-ok')) { return; }
 root.setAttribute('data-mc-ok', '1');
 
 /* ---------- valori comuni a tutti i mercanti (il config li puo' sovrascrivere) ---------- */
@@ -37,9 +41,10 @@ var M = C.MERCANTE || { id: 'mercante', nome: 'Mercante', titolo: '' };
 var F = C.FONT_POST;
 
 var IH = 'inn' + 'erHTML';
-var CATS = [];   /* categorie con almeno una voce in vendita */
+var CATS = [];   /* categorie del listino */
 var ITEMS = [];  /* voci in vendita, in ordine */
 var QTA = [];    /* quantita' nel carrello, stesso indice di ITEMS */
+var SLOTS = [];  /* elemento .mc-qty di ogni voce (null se nella pagina manca) */
 var USER = null;
 var busy = false;
 
@@ -47,8 +52,8 @@ var busy = false;
 
 function byId(id) { return document.getElementById(id); }
 function later(f) { setTimeout(f, 0); }
-function trim(s) { var out = String(s || '').replace(/^\s+|\s+$/g, ''); return out; }
 function pad2(n) { var s = ('0' + n).slice(-2); return s; }
+function norm(s) { var out = String(s || '').replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, ''); return out; }
 function esc(s) {
  var out = String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
  return out;
@@ -65,9 +70,12 @@ function qtaLabel(it, q) {
  var s = it.unita ? (q + ' ' + (q === 1 ? it.unita[0] : it.unita[1])) : String(q);
  return s;
 }
+function addClass(el, c) { if (el && (' ' + el.className + ' ').indexOf(' ' + c + ' ') < 0) { el.className = norm(el.className + ' ' + c); } }
+function delClass(el, c) { if (el) { el.className = norm((' ' + el.className + ' ').replace(' ' + c + ' ', ' ')); } }
 function setStatus(msg, isErr) {
  var s = byId('mc-status');
- s.textContent = msg;
+ if (!s) { return; }
+ s.textContent = msg || '';
  s.className = isErr ? 'mc-err' : '';
 }
 
@@ -83,68 +91,42 @@ function getCurrentUser() {
  return null;
 }
 
-/* ---------- stile dell'interfaccia (colori dal TEMA del mercante) ---------- */
+/* ---------- stile dei selettori e della barra (colori dal TEMA) ---------- */
 
 function injectCss() {
  if (byId('mc-shop-css')) { return; }
  var css = '' +
- '#mc-shop{font-family:var(--mc-font);color:var(--mc-testo);font-size:15px;line-height:1.45;text-align:left}' +
- '#mc-shop *{box-sizing:border-box}' +
- '#mc-shop .mc-cat{margin:0 0 20px}' +
- '#mc-shop .mc-cat-h{font-family:var(--mc-font-titoli);font-size:16px;font-weight:700;line-height:1.3;color:var(--mc-titoli);margin:0}' +
- '#mc-shop .mc-cat-n{font-size:13px;font-style:italic;color:var(--mc-secondario);margin:2px 0 4px}' +
- '#mc-shop table.mc-t{width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0 6px;border:0;margin:0;background:transparent}' +
- '#mc-shop table.mc-t td{border:0;padding:6px 8px;vertical-align:middle;background:var(--mc-riga);color:var(--mc-testo)}' +
- '#mc-shop table.mc-t td:first-child{border-radius:4px 0 0 4px}' +
- '#mc-shop table.mc-t td:last-child{border-radius:0 4px 4px 0}' +
- '#mc-shop tr.mc-on td:first-child{box-shadow:inset 3px 0 0 var(--mc-accento)}' +
- '#mc-shop tr.mc-on .mc-nome{color:var(--mc-titoli)}' +
- '#mc-shop td.mc-th{padding:5px 5px 5px 8px}' +
- '#mc-shop td.mc-th--quadro{width:62px}' +
- '#mc-shop td.mc-th--banner{width:124px}' +
- '#mc-shop td.mc-th--carta{width:50px}' +
- '#mc-shop td.mc-th img{display:block;margin:0;max-width:none;object-fit:cover;border:1px solid var(--mc-linea);border-radius:3px}' +
- '#mc-shop td.mc-th--quadro img{width:48px;height:48px}' +
- '#mc-shop td.mc-th--banner img{width:110px;height:28px}' +
- '#mc-shop td.mc-th--carta img{width:36px;height:72px}' +
- '#mc-shop .mc-nome{font-weight:600;line-height:1.25;color:var(--mc-testo)}' +
- '#mc-shop .mc-prz{font-size:13px;color:var(--mc-secondario)}' +
- '#mc-shop td.mc-q{width:126px;text-align:right;white-space:nowrap}' +
- '#mc-shop button.mc-b{display:inline-block;vertical-align:middle;width:30px;height:30px;min-width:0;margin:0;padding:0;border:1px solid var(--mc-linea);border-radius:4px;background:var(--mc-fondo);color:var(--mc-titoli);font-family:var(--mc-font);font-size:18px;line-height:28px;text-align:center;cursor:pointer;box-shadow:none}' +
- '#mc-shop input.mc-in{display:inline-block;vertical-align:middle;width:46px;height:30px;min-height:0;margin:0 4px;padding:0 4px;border:1px solid var(--mc-linea);border-radius:4px;background:var(--mc-fondo);color:var(--mc-testo);font-family:var(--mc-font);font-size:15px;text-align:center;box-shadow:none}' +
- '#mc-shop .mc-foot{padding-top:16px;border-top:1px dashed var(--mc-linea)}' +
- '#mc-shop .mc-lbl{font-family:var(--mc-font-titoli);font-size:14px;font-weight:700;color:var(--mc-titoli);margin:16px 0 6px}' +
- '#mc-shop .mc-lbl.mc-first{margin-top:0}' +
- '#mc-shop table.mc-s{width:100%;table-layout:fixed;border-collapse:collapse;border:0;margin:0;background:transparent}' +
- '#mc-shop table.mc-s td{border:0;padding:2px 0;background:transparent;color:var(--mc-secondario);font-size:14px;vertical-align:top}' +
- '#mc-shop table.mc-s td.mc-r{width:120px;text-align:right;color:var(--mc-testo)}' +
- '#mc-shop table.mc-s tr.mc-tot td{padding-top:8px;border-top:1px solid var(--mc-linea);font-family:var(--mc-font-titoli);font-size:16px;font-weight:700;color:var(--mc-titoli)}' +
- '#mc-shop .mc-vuoto{font-size:14px;font-style:italic;color:var(--mc-secondario)}' +
- '#mc-shop select,#mc-shop input.mc-txt{display:block;width:100%;height:auto;min-height:36px;margin:0;padding:6px 8px;background:var(--mc-riga);color:var(--mc-testo);border:1px solid var(--mc-linea);border-radius:4px;font-family:var(--mc-font);font-size:14px;box-shadow:none}' +
- '#mc-shop input.mc-txt{margin-top:6px}' +
- '#mc-shop .mc-hint{font-size:12px;font-style:italic;color:var(--mc-secondario);margin:4px 0 0}' +
- '#mc-shop .mc-act{text-align:center;margin-top:16px}' +
- '#mc-shop button.mc-go{display:inline-block;width:auto;height:auto;margin:4px;padding:9px 26px;border:1px solid var(--mc-cornicebordo);border-radius:4px;background:var(--mc-bottone);color:var(--mc-bottonetesto);font-family:var(--mc-font-titoli);font-size:15px;font-weight:700;letter-spacing:.05em;cursor:pointer;box-shadow:none}' +
- '#mc-shop button.mc-go2{background:transparent;color:var(--mc-secondario);border-color:var(--mc-linea)}' +
- '#mc-shop button[disabled]{opacity:.5;cursor:default}' +
- '#mc-shop #mc-status{text-align:center;margin-top:10px;min-height:20px;font-size:14px;color:var(--mc-titoli)}' +
- '#mc-shop #mc-status.mc-err{color:var(--mc-accento);font-weight:600}' +
- '#mc-shop .mc-preview{margin-top:12px;padding:12px 8px;background:#8FBEBA;border-radius:6px}' +
- '#mc-shop textarea{display:block;width:100%;min-height:120px;margin-top:8px;padding:6px;font-size:11px;background:var(--mc-riga);color:var(--mc-testo);border:1px solid var(--mc-linea)}' +
+ /* selettori sotto gli articoli */
+ '#mc-shop .mc-qty{display:flex;justify-content:center;align-items:center;margin:6px 0 0;font-family:var(--mc-font)}' +
+ '#mc-shop .mc-qty:empty{display:none}' +
+ '#mc-shop button.mc-b{display:inline-block;flex:0 0 auto;width:28px;height:28px;min-width:0;margin:0;padding:0;border:1px solid var(--mc-linea);border-radius:4px;background:var(--mc-fondo);color:var(--mc-titoli);font-family:var(--mc-font);font-size:17px;line-height:26px;text-align:center;cursor:pointer;box-shadow:none}' +
+ '#mc-shop input.mc-in{display:inline-block;flex:0 0 auto;width:42px;height:28px;min-height:0;margin:0 4px;padding:0 2px;border:1px solid var(--mc-linea);border-radius:4px;background:var(--mc-fondo);color:var(--mc-testo);font-family:var(--mc-font);font-size:14px;text-align:center;box-shadow:none}' +
+ '#mc-shop .mc-on > .mc-qty input.mc-in{border-color:var(--mc-accento);color:var(--mc-titoli)}' +
+ /* barra di conferma */
+ '#mc-bar{font-family:var(--mc-font);color:var(--mc-testo);font-size:14px;line-height:1.4;text-align:left}' +
+ '#mc-bar .mc-top{display:flex;align-items:baseline;gap:10px;margin:0 0 8px}' +
+ '#mc-bar .mc-t{font-family:var(--mc-font-titoli);font-size:15px;font-weight:700;color:var(--mc-titoli)}' +
+ '#mc-bar .mc-count{flex:1 1 auto;min-width:0;font-size:13px;font-style:italic;color:var(--mc-secondario)}' +
+ '#mc-bar .mc-tot{flex:0 0 auto;font-family:var(--mc-font-titoli);font-size:16px;font-weight:700;color:var(--mc-titoli);white-space:nowrap}' +
+ '#mc-bar .mc-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}' +
+ '#mc-bar select,#mc-bar input.mc-txt{display:block;height:36px;min-height:0;margin:0;padding:0 8px;background:var(--mc-riga);color:var(--mc-testo);border:1px solid var(--mc-linea);border-radius:4px;font-family:var(--mc-font);font-size:14px;box-shadow:none}' +
+ '#mc-bar select{flex:1 1 200px;width:auto;min-width:0}' +
+ '#mc-bar input.mc-txt{flex:0 0 110px;width:110px}' +
+ '#mc-bar button.mc-go{display:inline-block;flex:0 0 auto;width:auto;height:36px;margin:0;padding:0 20px;border:1px solid var(--mc-cornicebordo);border-radius:4px;background:var(--mc-bottone);color:var(--mc-bottonetesto);font-family:var(--mc-font-titoli);font-size:14px;font-weight:700;letter-spacing:.05em;cursor:pointer;box-shadow:none}' +
+ '#mc-bar button.mc-go2{padding:0 12px;background:transparent;color:var(--mc-secondario);border-color:var(--mc-linea)}' +
+ '#mc-bar button[disabled]{opacity:.5;cursor:default}' +
+ '#mc-bar .mc-hint{margin:6px 0 0;font-size:12px;font-style:italic;color:var(--mc-secondario)}' +
+ '#mc-bar #mc-status{margin:6px 0 0;font-size:13px;color:var(--mc-titoli)}' +
+ '#mc-bar #mc-status.mc-err{color:var(--mc-accento);font-weight:600}' +
+ '#mc-bar .mc-hint:empty,#mc-bar #mc-status:empty,#mc-bar #mc-result:empty{display:none}' +
+ '#mc-bar #mc-result{max-height:320px;overflow-y:auto;margin:10px 0 0;padding:10px 0 0;border-top:1px dashed var(--mc-linea);scrollbar-width:thin;scrollbar-color:var(--mc-bordo) var(--mc-fondo)}' +
+ '#mc-bar .mc-preview{padding:12px 8px;background:#8FBEBA;border-radius:6px}' +
+ '#mc-bar .mc-act{display:flex;justify-content:center;gap:8px;margin:10px 0 2px}' +
+ '#mc-bar textarea{display:block;width:100%;min-height:110px;margin:8px 0 0;padding:6px;font-size:11px;background:var(--mc-riga);color:var(--mc-testo);border:1px solid var(--mc-linea);box-sizing:border-box}' +
  /* mobile */
- 'body.ffm #mc-shop table.mc-t td{padding:5px 6px}' +
- 'body.ffm #mc-shop td.mc-th--quadro{width:50px}' +
- 'body.ffm #mc-shop td.mc-th--quadro img{width:38px;height:38px}' +
- 'body.ffm #mc-shop td.mc-th--banner{width:82px}' +
- 'body.ffm #mc-shop td.mc-th--banner img{width:68px;height:17px}' +
- 'body.ffm #mc-shop td.mc-th--carta{width:42px}' +
- 'body.ffm #mc-shop td.mc-th--carta img{width:28px;height:56px}' +
- 'body.ffm #mc-shop td.mc-q{width:106px}' +
- 'body.ffm #mc-shop button.mc-b{width:28px;height:28px;line-height:26px}' +
- 'body.ffm #mc-shop input.mc-in{width:38px;height:28px;margin:0 3px}' +
- 'body.ffm #mc-shop .mc-nome{font-size:14px}' +
- 'body.ffm #mc-shop .mc-prz{font-size:12px}' +
- 'body.ffm #mc-shop table.mc-s td.mc-r{width:100px}';
+ 'body.ffm #mc-bar select{flex:1 1 100%}' +
+ 'body.ffm #mc-bar input.mc-txt{flex:1 1 auto;width:auto;min-width:0}' +
+ 'body.ffm #mc-bar #mc-result{max-height:none;overflow:visible}';
  var st = document.createElement('style');
  st.id = 'mc-shop-css';
  st.textContent = css;
@@ -156,49 +138,52 @@ function injectCss() {
  root.style.setProperty('--mc-font-titoli', T.fontTitoli);
 }
 
-/* ---------- interfaccia ---------- */
+/* ---------- listino e selettori ---------- */
 
-function buildUi() {
- var lst = C.LISTINO || [], h = '', i, j, cat, v, idx, f;
+function readListino() {
+ var lst = C.LISTINO || [], i, j, cat, v;
  for (i = 0; i < lst.length; i++) {
   cat = lst[i];
-  var voci = [];
-  for (j = 0; j < (cat.voci || []).length; j++) { if (!cat.voci[j].off) { voci.push(cat.voci[j]); } }
-  if (!voci.length) { continue; }
-  f = formato(cat.formato);
   var ci = CATS.length;
-  CATS.push({ nome: cat.categoria, formato: f });
-  h += '<div class="mc-cat"><div class="mc-cat-h">' + esc(cat.categoria) + '</div>';
-  if (cat.nota) { h += '<div class="mc-cat-n">' + esc(cat.nota) + '</div>'; }
-  h += '<table class="mc-t"><tbody>';
-  for (j = 0; j < voci.length; j++) {
-   v = voci[j];
-   idx = ITEMS.length;
-   ITEMS.push({ cat: ci, nome: v.nome, prezzo: Number(v.prezzo) || 0, img: v.img || '', unita: cat.unita || null, formato: f });
+  CATS.push({ nome: cat.categoria, formato: formato(cat.formato) });
+  for (j = 0; j < (cat.voci || []).length; j++) {
+   v = cat.voci[j];
+   if (v.off) { continue; }
+   ITEMS.push({ cat: ci, nome: v.nome, prezzo: Number(v.prezzo) || 0, img: v.img || '', unita: cat.unita || null, formato: CATS[ci].formato });
    QTA.push(0);
-   h += '<tr id="mc-row-' + idx + '">' +
-    '<td class="mc-th mc-th--' + f + '">' + (v.img ? '<img src="' + esc(v.img) + '" alt="">' : '') + '</td>' +
-    '<td><div class="mc-nome">' + esc(v.nome) + '</div><div class="mc-prz">' + money(v.prezzo) +
-    (cat.unita ? ' / ' + esc(cat.unita[0]) : '') + '</div></td>' +
-    '<td class="mc-q"><button type="button" class="mc-b" data-op="-1" data-i="' + idx + '">&minus;</button>' +
-    '<input type="text" inputmode="numeric" class="mc-in" id="mc-q-' + idx + '" data-i="' + idx + '" value="0" maxlength="3">' +
-    '<button type="button" class="mc-b" data-op="1" data-i="' + idx + '">+</button></td></tr>';
+   SLOTS.push(null);
   }
-  h += '</tbody></table></div>';
  }
- if (!ITEMS.length) { root[IH] = '<div class="mc-vuoto">Al momento non c\'e\' nulla in vendita.</div>'; return false; }
+}
 
- h += '<div class="mc-foot">' +
-  '<div class="mc-lbl mc-first">Il tuo carrello</div><div id="mc-sum"></div>' +
-  '<div class="mc-lbl">Lista della Spesa</div>' +
-  '<select id="mc-topic"><option value="">Caricamento...</option></select>' +
+function buildSlots() {
+ var byName = {}, i, slots = root.querySelectorAll('.mc-qty[data-mc]');
+ for (i = 0; i < ITEMS.length; i++) { byName[norm(ITEMS[i].nome)] = i; }
+ for (i = 0; i < slots.length; i++) {
+  var nm = norm(slots[i].getAttribute('data-mc'));
+  if (!byName.hasOwnProperty(nm)) {
+   if (window.console) { window.console.warn('Negozio: "' + nm + '" non e\' nel LISTINO (o e\' off)'); }
+   continue;
+  }
+  var idx = byName[nm];
+  SLOTS[idx] = slots[i];
+  slots[i][IH] = '<button type="button" class="mc-b" data-op="-1" data-i="' + idx + '" title="Togli">&minus;</button>' +
+   '<input type="text" inputmode="numeric" class="mc-in" id="mc-q-' + idx + '" data-i="' + idx + '" value="0" maxlength="3" aria-label="Quantit&agrave; ' + esc(ITEMS[idx].nome) + '">' +
+   '<button type="button" class="mc-b" data-op="1" data-i="' + idx + '" title="Aggiungi">+</button>';
+ }
+}
+
+function buildBar() {
+ bar[IH] = '<div class="mc-top"><span class="mc-t">Carrello</span><span class="mc-count" id="mc-count"></span><span class="mc-tot" id="mc-tot"></span></div>' +
+  '<div class="mc-row">' +
+  '<select id="mc-topic" title="La tua Lista della Spesa"><option value="">Caricamento liste...</option></select>' +
+  '<input class="mc-txt" id="mc-topic-manual" type="text" inputmode="numeric" placeholder="ID topic" title="Se la tua Lista della Spesa non compare nel menu, scrivi qui l\'ID del topic">' +
+  '<button type="button" class="mc-go" id="mc-go">Acquista</button>' +
+  '<button type="button" class="mc-go mc-go2" id="mc-clear" title="Svuota il carrello">Svuota</button>' +
+  '</div>' +
   '<div class="mc-hint" id="mc-topic-hint"></div>' +
-  '<input class="mc-txt" id="mc-topic-manual" type="text" placeholder="Non la trovi? Scrivi qui l\'ID del topic">' +
-  '<div class="mc-act"><button type="button" class="mc-go" id="mc-go">Acquista</button>' +
-  '<button type="button" class="mc-go mc-go2" id="mc-clear">Svuota</button></div>' +
-  '<div id="mc-status"></div><div id="mc-result"></div></div>';
- root[IH] = h;
- return true;
+  '<div id="mc-status"></div>' +
+  '<div id="mc-result"></div>';
 }
 
 function setQta(i, v, fromInput) {
@@ -209,8 +194,8 @@ function setQta(i, v, fromInput) {
  QTA[i] = v;
  var inp = byId('mc-q-' + i);
  if (inp && !(fromInput && inp.value === '') && inp.value !== String(v)) { inp.value = String(v); }
- var row = byId('mc-row-' + i);
- if (row) { row.className = v > 0 ? 'mc-on' : ''; }
+ var parent = SLOTS[i] ? SLOTS[i].parentNode : null;
+ if (v > 0) { addClass(parent, 'mc-on'); } else { delClass(parent, 'mc-on'); }
  updateSum();
 }
 
@@ -222,14 +207,12 @@ function cart() {
 function total(c) { var t = 0; for (var i = 0; i < c.length; i++) { t += c[i].sub; } return t; }
 
 function updateSum() {
- var c = cart(), box = byId('mc-sum');
- if (!c.length) { box[IH] = '<div class="mc-vuoto">Il carrello e\' vuoto.</div>'; return; }
- var h = '<table class="mc-s"><tbody>';
- for (var i = 0; i < c.length; i++) {
-  h += '<tr><td>' + esc(qtaLabel(c[i].it, c[i].q)) + ' &times; ' + esc(c[i].it.nome) + '</td><td class="mc-r">' + money(c[i].sub) + '</td></tr>';
- }
- h += '<tr class="mc-tot"><td>Totale</td><td class="mc-r">' + money(total(c)) + '</td></tr></tbody></table>';
- box[IH] = h;
+ var c = cart(), pezzi = 0;
+ for (var i = 0; i < c.length; i++) { pezzi += c[i].q; }
+ byId('mc-count').textContent = c.length ?
+  (c.length + (c.length === 1 ? ' articolo' : ' articoli') + (pezzi !== c.length ? ' (' + pezzi + ' pezzi)' : '')) :
+  'vuoto: scegli le quantità nel listino';
+ byId('mc-tot').textContent = money(total(c));
 }
 
 function bindUi() {
@@ -238,6 +221,7 @@ function bindUi() {
   if (!b || !b.getAttribute) { return; }
   var op = b.getAttribute('data-op');
   if (op) {
+   e.preventDefault();
    var i = parseInt(b.getAttribute('data-i'), 10);
    setQta(i, QTA[i] + parseInt(op, 10));
   }
@@ -255,6 +239,7 @@ function bindUi() {
  });
  byId('mc-clear').addEventListener('click', function () {
   for (var i = 0; i < ITEMS.length; i++) { if (QTA[i]) { setQta(i, 0); } }
+  setStatus('');
  });
  byId('mc-go').addEventListener('click', onGo);
 }
@@ -339,11 +324,11 @@ function loadMyLists() {
   if (!mine.length) {
    o = document.createElement('option'); o.value = ''; o.text = 'Nessuna lista trovata';
    sel.appendChild(o);
-   hint.textContent = failed ? 'Non riesco a leggere la sezione: scrivi l\'ID del topic qui sotto.' :
-    'Non ho trovato topic aperti da te nella sezione: scrivi l\'ID del topic qui sotto.';
+   hint.textContent = failed ? 'Non riesco a leggere la sezione: scrivi l\'ID del topic della tua Lista della Spesa.' :
+    'Non ho trovato topic aperti da te nella sezione: scrivi l\'ID del topic della tua Lista della Spesa.';
    return;
   }
-  if (mine.length > 1) { o = document.createElement('option'); o.value = ''; o.text = '-- Scegli la tua lista --'; sel.appendChild(o); }
+  if (mine.length > 1) { o = document.createElement('option'); o.value = ''; o.text = '-- Scegli la tua Lista della Spesa --'; sel.appendChild(o); }
   for (var i = 0; i < mine.length; i++) {
    o = document.createElement('option'); o.value = mine[i].id; o.text = mine[i].title;
    sel.appendChild(o);
@@ -433,9 +418,20 @@ function postReply(sectionId, topicId, content, callback) {
   .catch(function () { later(function () { callback(false); }); });
 }
 
-/* ---------- risultato ---------- */
+/* ---------- esito (la barra si allarga) ---------- */
 
 function unlock() { busy = false; byId('mc-go').disabled = false; byId('mc-clear').disabled = false; }
+
+function closeResult() { byId('mc-result')[IH] = ''; setStatus(''); }
+
+function actionButton(label, secondary, fn) {
+ var b = document.createElement('button');
+ b.type = 'button';
+ b.className = secondary ? 'mc-go mc-go2' : 'mc-go';
+ b.textContent = label;
+ b.addEventListener('click', fn);
+ return b;
+}
 
 function showResult(html, mode, topicId) {
  var res = byId('mc-result');
@@ -443,21 +439,23 @@ function showResult(html, mode, topicId) {
  var prev = document.createElement('div');
  prev.className = 'mc-preview';
  prev[IH] = html;
+ var act = document.createElement('div');
+ act.className = 'mc-act';
 
  if (mode === 'ok') {
   setStatus('Fatto! L\'acquisto e\' stato postato nella tua Lista della Spesa.');
   res.appendChild(prev);
-  var act = document.createElement('div'); act.className = 'mc-act';
-  var go = document.createElement('button'); go.type = 'button'; go.className = 'mc-go'; go.textContent = 'Vai al post';
-  go.addEventListener('click', function () {
+  act.appendChild(actionButton('Vai al post', false, function () {
    location.replace('https://' + location.hostname + '/?t=' + topicId + '&view=getlastpost');
-  });
-  act.appendChild(go); res.appendChild(act);
+  }));
+  res.appendChild(act);
   return;
  }
  if (mode === 'test') {
   setStatus('Modalita\' test: niente post. Questa e\' l\'anteprima.');
   res.appendChild(prev);
+  act.appendChild(actionButton('Chiudi', true, closeResult));
+  res.appendChild(act);
   unlock();
   return;
  }
@@ -479,7 +477,7 @@ function onGo() {
  var topicId = manual || tSel.value;
  var topicTitle = manual ? ('topic ' + manual) : (tSel.selectedIndex >= 0 ? tSel.options[tSel.selectedIndex].text : '');
 
- if (!c.length) { setStatus('Il carrello e\' vuoto.', true); return; }
+ if (!c.length) { setStatus('Il carrello e\' vuoto: scegli le quantita\' nel listino.', true); return; }
  if (!topicId) { setStatus('Scegli la tua Lista della Spesa (o scrivi l\'ID del topic).', true); return; }
 
  var righe = [], i;
@@ -506,8 +504,13 @@ function onGo() {
 function init() {
  injectCss();
  USER = getCurrentUser();
- if (!USER) { root[IH] = '<div class="mc-vuoto">Devi essere loggato per fare acquisti.</div>'; return; }
- if (!buildUi()) { return; }
+ if (!USER) {
+  bar[IH] = '<div class="mc-top"><span class="mc-t">Carrello</span><span class="mc-count">Devi essere loggato per fare acquisti.</span></div>';
+  return;
+ }
+ readListino();
+ buildSlots();
+ buildBar();
  bindUi();
  updateSum();
  if (C.TEST_MODE) { setStatus('Modalita\' test attiva.'); }
